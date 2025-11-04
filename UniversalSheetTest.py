@@ -10,6 +10,7 @@ import requests
 import toml
 import time # Added for demonstration
 import streamlit as st
+import toml, os
 
 
 st.set_page_config(layout="wide")
@@ -17,7 +18,14 @@ st.title("🏈 Football XML Stats Parser")
 st.markdown("Enter your Dropbox ZIP URL, upload the Excel template, and generate reports for all teams.")
 
 # Load the Dropbox token from secrets_folder/secrets.toml
-secrets = toml.load("/Users/jasonwang/Desktop/CollegePressbox/secrets_folder/secrets.toml")
+# Get the absolute path to the current script directory
+base_dir = os.path.dirname(__file__)
+
+# Construct the relative path to the secrets file
+secrets_path = os.path.join(base_dir, "secrets_folder", "secrets.toml")
+
+# Load the file
+secrets = toml.load(secrets_path)
 DROPBOX_ACCESS_TOKEN = secrets["DROPBOX_ACCESS_TOKEN"]
 
 # --- TEAM MAPPING (Canonical Names for Schedule/Selection) ---
