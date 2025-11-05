@@ -10,7 +10,6 @@ import requests
 import toml
 import time # Added for demonstration
 import streamlit as st
-import toml, os
 
 
 st.set_page_config(layout="wide")
@@ -18,14 +17,7 @@ st.title("🏈 Football XML Stats Parser")
 st.markdown("Enter your Dropbox ZIP URL, upload the Excel template, and generate reports for all teams.")
 
 # Load the Dropbox token from secrets_folder/secrets.toml
-# Get the absolute path to the current script directory
-base_dir = os.path.dirname(__file__)
-
-# Construct the relative path to the secrets file
-secrets_path = os.path.join(base_dir, "secrets_folder", "secrets.toml")
-
-# Load the file
-secrets = toml.load(secrets_path)
+secrets = toml.load("/Users/jasonwang/Desktop/CollegePressbox/secrets_folder/secrets.toml")
 DROPBOX_ACCESS_TOKEN = secrets["DROPBOX_ACCESS_TOKEN"]
 
 # --- TEAM MAPPING (Canonical Names for Schedule/Selection) ---
@@ -326,8 +318,27 @@ def process_team(core_team_name, team_stats, game_stats, parsed_games, template_
     wb.save(output)
     output.seek(0)
     
-    file_name = core_team_name + " Sheet.xlsm" if keep_vba else core_team_name + "_filled_stats.xlsx"
-    
+    special_cases = {
+    "Army West Point": "Army_Ind",
+    "Miami (FL)": "Miami_Fl_Ind",
+    "Miami (OH)": "Miami_Ohio_Ind",
+    "Georgia State": "Georgia_State_Ind",
+    "Jacksonville State": "JacksonvilleSt_Ind",
+    "Louisiana Tech": "La_Tech_Ind",
+    "Missouri State": "MissouriSt_Ind",
+    "Sam Houston": "SamHoustonSt_Ind"
+    }
+
+    if core_team_name in special_cases:
+        file_name = special_cases[core_team_name]
+    else:
+        file_name = core_team_name.replace(" ", "_")
+        if "State" in core_team_name and "Georgia State" not in core_team_name:
+            file_name = file_name.replace("State", "St")
+        file_name += "_Ind"
+
+    file_name += ".xlsm" if keep_vba else ".xlsx"
+
     return output, file_name 
 # END of process_team function
 
