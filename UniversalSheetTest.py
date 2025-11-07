@@ -2,6 +2,33 @@ import streamlit as st
 import pandas as pd
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from openpyxl.styles import PatternFill
+from openpyxl.styles import Font
+
+# --- Team-specific header font colors (A4 = A29) ---
+TEAM_HEADER_COLORS = {
+    "Florida State": {"A4": "540115", "A14": "CBB67C"},
+    "Army West Point": {"A4": "2E2C28", "A14": "D5BA70"},
+    "Miami (FL)": {"A4": "005030", "A14": "F47321"},
+    "Georgia State": {"A4": "0039A6", "A14": "A2AAAD"},
+    # add more teams...
+}
+
+def apply_team_header_font_colors(ws, core_team_name):
+    """Apply team-specific *font* colors to merged header cells (A4=A29)."""
+    if core_team_name not in TEAM_HEADER_COLORS:
+        return  # skip if not found
+
+    colors = TEAM_HEADER_COLORS[core_team_name]
+
+    def set_font_color(cell_addr, hex_color):
+        ws[cell_addr].font = Font(color=f"FF{hex_color}")
+
+    # Apply font colors (A4 = A29)
+    set_font_color("A4", colors["A4"])
+    set_font_color("A29", colors["A4"])
+    set_font_color("A14", colors["A14"])
+
 import re
 from openpyxl import load_workbook
 import io
@@ -93,6 +120,260 @@ XML_NAME_ALIASES = {
     "jax state": "Jacksonville State"
 }
 
+TEAM_COLORS = {
+    #AAC
+    "Army West Point": ("000000", "FFE69D"),
+    "Charlotte": ("203214", "FFBF00"),
+    "East Carolina": ("7030A0", "FFFFFF"),
+    "Florida Atlantic": ("305496", "FF0000"),
+    "Memphis": ("0070C0", "A6A6A6"),
+    "Navy": ("002060", "FFF2CC"),
+    "North Texas": ("00B050", "FFFFFF"),
+    "Rice": ("2C3C9B", "FFFFFF"),
+    "South Florida": ("067C00", "FFF2CC"),
+    "Temple": ("FF0000", "FFFFFF"),
+    "Tulane": ("006D45", "000000"),
+    "Tulsa": ("305496", "FFF2CC"),
+    "UAB": ("375623", "FFBF00"),
+    "UTSA": ("002060", "C65911"),
+    #ACC
+    "Boston College": ("C00000", "FFF2CC"),
+    "California": ("203764", "FFC003"),
+    "Clemson": ("ED7D31", "7030A0"),
+    "Duke": ("0020FE", "FFFFFF"),
+    "Florida State": ("C00000", "FFF2CC"),
+    "Georgia Tech": ("FFC000", "FFFFFF"),
+    "Louisville": ("FF0000", "FFFFFF"),
+    "Miami (FL)": ("FF8231", "00B050"),
+    "NC State": ("FF0000", "FFFFFF"),
+    "North Carolina": ("00B0F0", "FFFFFF"),
+    "Pitt": ("0015F4", "FFD966"),
+    "SMU": ("FF0000", "0070C0"),
+    "Stanford": ("BC0001", "FFFFFF"),
+    "Syracuse": ("C65911", "1829BA"),
+    "Virginia": ("C65911", "305496"),
+    "Virginia Tech": ("A4001B", "FFFFFF"),
+    "Wake Forest": ("806000", "000000"),
+    #big10
+    "Illinois": ("ED7D31", "305496"),
+    "Indiana": ("FF0000", "FFFFFF"),
+    "Iowa": ("FFF501", "000000"),
+    "Maryland": ("FF0000", "FFFFFF"),
+    "Michigan": ("FFFF00", "305496"),
+    "Michigan State": ("548235", "FFFFFF"),
+    "Minnesota": ("BD151C", "FFDF01"),
+    "Nebraska": ("FF0000", "FFFFFF"),
+    "Northwestern": ("7030A0", "FFFFFF"),
+    "Ohio State": ("E10002", "C3C3C3"),
+    "Oregon": ("FFFF00", "375623"),
+    "Penn State": ("02009E", "FFFFFF"),
+    "Purdue": ("000000", "FFF2CC"),
+    "Rutgers": ("FF0000", "FFFFFF"),
+    "UCLA": ("8EA9DB", "FFD966"),
+    "USC": ("C00000", "F9F102"),
+    "Washington": ("5C2785", "BF8F00"),
+    "Wisconsin": ("FF0000", "FFFFFF"),
+    #big12
+    "Arizona": ("FF0000", "044583"),
+    "Arizona State": ("B50002", "DBA900"),
+    "Baylor": ("375641", "C8C900"),
+    "BYU": ("040BC0", "FFFFFF"),
+    "UCF": ("000000", "FFF2CC"),
+    "Cincinnati": ("FF0000", "FFFFFF"),
+    "Colorado": ("FFFAC4", "FFFFFF"),
+    "Houston": ("FF0000", "000000"),
+    "Iowa State": ("C00000", "FFC000"),
+    "Kansas": ("FF0000", "305496"),
+    "Kansas State": ("7030A0", "808080"),
+    "Oklahoma State": ("C65911", "808080"),
+    "TCU": ("5D2784", "FFFFFF"),
+    "Texas Tech": ("FF0000", "000000"),
+    "Utah": ("FF0000", "FFFFFF"),
+    "West Virginia": ("203764", "FFD802"),
+    #CUSA
+    "Delaware": ("00B0F0", "FFFFFF"),
+    "FIU": ("002993", "FFC000"),
+    "Jacksonville State": ("FF0000", "FFFFFF"),
+    "Kennesaw State": ("FFFF00", "000000"),
+    "Louisiana Tech": ("305496", "FF0000"),
+    "Liberty": ("FF0000", "305496"),
+    "Middle Tenn": ("0070C0", "A6A6A6"),
+    "Missouri State": ("C65911", "FFFFFF"),
+    "New Mexico State": ("C93530", "FFFFFF"),
+    "Sam Houston": ("C65911", "FFFFFF"),
+    "UTEP": ("ED7D31", "FFFFFF"),
+    "WKU": ("FF0000", "FFFFFF"),
+    #IND
+    "UConn": ("044583", "FFFFFF"),
+    "Notre Dame": ("002060", "EBB000"),
+    #MAC
+    "Akron": ("012548", "806000"),
+    "Ball State": ("FF0000", "FFC000"),
+    "Bowling Green": ("C65911", "5D2B09"),
+    "Buffalo": ("305496", "FFFFFF"),
+    "Central Michigan": ("CF0002", "FFC000"),
+    "Eastern Michigan": ("306805", "FFFFFF"),
+    "Kent State": ("203764", "FFE509"),
+    "Miami (OH)": ("FF0000", "FFFFFF"),
+    "NIU": ("DB0003", "838383"),
+    "Ohio": ("0A711B", "FFFFFF"),
+    "Toledo": ("002060", "EFEE00"),
+    "Massachusetts": ("C60E11", "FFFFFF"),
+    "Western Michigan": ("806000", "000000"),
+    #SunBelt
+    "App State": ("FFC000", "000000"),
+    "Arkansas State": ("FF0000", "000000"),
+    "Costal Carolina": ("00E4D5", "000000"),
+    "Georgia Southern": ("044583", "FFFFFF"),
+    "Georgia State": ("2F75B5", "FFFFFF"),
+    "James Madison": ("7030A0", "BF8F00"),
+    "Louisiana": ("FF0000", "FFFFFF"),
+    "Marshall": ("00B050", "FFFFFF"),
+    "Old Dominion": ("044583", "808080"),
+    "South Alabama": ("FF0000", "FFFFFF"),
+    "Southern Miss": ("806000", "000000"),
+    "Texas State": ("A00001", "806000"),
+    "Troy": ("C00000", "A6A6A6"),
+    "ULM": ("950001", "FFC000"),
+    #SEC
+    "Alabama": ("C80001", "FFFFFF"),
+    "Arkansas": ("C80001", "FFFFFF"),
+    "Auburn": ("FF8700", "002060"),
+    "Florida": ("3505A0", "FF9219"),
+    "Georgia": ("000000", "FF0000"),
+    "Kentucky": ("305496", "FFFFFF"),
+    "LSU": ("7030A0", "FFFF00"),
+    "Mississippi": ("8EA9DB", "FF0000"),
+    "Mississippi State": ("8E0001", "5E5E5E"),
+    "Missouri": ("BF8F00", "000000"),
+    "Oklahoma": ("C00000", "FFF2CC"),
+    "South Carolina": ("950001", "000000"),
+    "Tennessee": ("FF7217", "000000"),
+    "Texas A&M": ("8A0001", "FFFFFF"),
+    "Texas": ("C65911", "FFFFFF"),
+    "Vanderbilt": ("BF8F00", "000000"),
+    #PAC12
+    "Oregon State": ("ED7D31", "000000"),
+    "Washington State": ("FF0000", "BFBFBF"),
+    #MTWest
+    "Air Force": ("0070C0", "A6A6A6"),
+    "Boise State": ("002B91", "ED7D31"),
+    "Colorado State": ("365523", "FFFFFF"),
+    "Fresno State": ("FF0000", "FFFFFF"),
+    "Hawaii": ("048A00", "FFFFFF"),
+    "Nevada": ("002060", "A6A6A6"),
+    "New Mexico": ("C40002", "A6A6A6"),
+    "San Diego State": ("FF0000", "262626"),
+    "San Jose State": ("305496", "FFFF00"),
+    "UNLV": ("C00002", "A6A6A6"),
+    "Utah State": ("023668", "FFFFFF"),
+    "Wyoming": ("BF8F00", "806000")
+}
+
+TEAM_HEADER_COLORS = {
+    #AAC Special Case
+    "East Carolina": {"A4": "FFFF00","A14": "000000"},
+    "Florida Atlantic": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Navy": {"A4": "FFF2CC","A14": "000000"},
+    "Tulane": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Tulsa": {"A4": "FFF2CC","A14": "000000"},
+    #ACC Special Case
+    "Boston College": {"A4": "FFF2CC","A14": "000000"},
+    "Clemson": {"A4": "000000","A14": "FFFFFF"},
+    "Florida State": {"A4": "FFF2CC","A14": "000000"},
+    "Georgia Tech": {"A4": "000000","A14": "000000"},
+    "Miami (FL)": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "North Carolina": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "SMU": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Syracuse": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Virginia": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Wake Forest": {"A4": "FFFFFF","A14": "FFFFFF"},
+    #BIG10 Special Case
+    "Illinois": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Iowa": {"A4": "000000","A14": "FFFFFF"},
+    "Michigan": {"A4": "000000","A14": "FFFFFF"},
+    "Oregon": {"A4": "000000","A14": "FFFFFF"},
+    "Purdue": {"A4": "FFF2CC","A14": "000000"},
+    "UCLA": {"A4": "000000","A14": "000000"},
+    "Washington": {"A4": "FFFFFF","A14": "FFFFFF"},
+    #BIG12 Special Case
+    "Arizona": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "UCF": {"A4": "FFF2CC","A14": "000000"},
+    "Colorado": {"A4": "000000","A14": "000000"},
+    "Houston": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Kansas": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Kansas State": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Oklahoma State": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Texas Tech": {"A4": "FFFFFF","A14": "FFFFFF"},
+    #CUSA Special Case
+    "Kennesaw State": {"A4": "000000","A14": "000000"},
+    "Louisiana Tech": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Liberty": {"A4": "FFFFFF","A14": "FFFFFF"},
+    #MAC Special Case
+    "Akron": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Bowling Green": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "NIU": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Western Michigan": {"A4": "FFFFFF","A14": "FFFFFF"},
+    #SunBelt Special Case
+    "App State": {"A4": "000000","A14": "FFFFFF"},
+    "Arkansas State": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Coastal Carolina": {"A4": "000000","A14": "FFFFFF"},
+    "James Madison": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Old Dominion": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Southern Miss": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Texas State": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Troy": {"A4": "FFFFFF","A14": "FFFFFF"},
+    #SEC Special Case
+    "Auburn": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Georgia": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Mississippi": {"A4": "000000","A14": "FFFFFF"},
+    "Mississippi State": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Missouri": {"A4": "000000","A14": "FFFFFF"},
+    "South Carolina": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Tennessee": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Vanderbilt": {"A4": "FFFFFF","A14": "FFFFFF"},
+    #PAC12 Special Case
+    "Oregon State": {"A4": "000000","A14": "FFFFFF"},
+    #MTWest Special Case
+    "San Diego State": {"A4": "FFFFFF","A14": "FFFFFF"},
+    "Wyoming": {"A4": "FFFFFF","A14": "FFFFFF"},
+}
+
+
+def apply_team_colors(ws, primary_hex, secondary_hex):
+    """Apply primary and secondary colors to fixed ranges in Data Output sheet."""
+    primary_fill = PatternFill(start_color=primary_hex, end_color=primary_hex, fill_type="solid")
+    secondary_fill = PatternFill(start_color=secondary_hex, end_color=secondary_hex, fill_type="solid")
+
+    # Primary color ranges
+    for row in range(4, 14):  # B4:B13
+        ws[f"B{row}"].fill = primary_fill
+        ws[f"A{row}"].fill = primary_fill
+    for row in range(29, 49):  # B29:B48
+        ws[f"B{row}"].fill = primary_fill
+        ws[f"A{row}"].fill = primary_fill
+
+    # Secondary color ranges
+    for row in range(14, 29):  # B14:B28
+        ws[f"B{row}"].fill = secondary_fill
+        ws[f"A{row}"].fill = secondary_fill
+
+def apply_team_header_colors(ws, core_team_name):
+    """Apply team-specific *font* colors to merged header cells (A4=A29)."""
+    if core_team_name not in TEAM_HEADER_COLORS:
+        return  # skip if not found
+
+    colors = TEAM_HEADER_COLORS[core_team_name]
+
+    def set_font_color(cell_addr, hex_color):
+        ws[cell_addr].font = Font(name = "Arial", size = 14, bold = True, color=f"FF{hex_color}")
+
+    # Apply font colors (A4 = A29)
+    set_font_color("A4", colors["A4"])
+    set_font_color("A29", colors["A4"])
+    set_font_color("A14", colors["A14"])
+
+
 # --- HELPER FUNCTIONS (Adjusted to take template_data instead of template_file) ---
 
 def normalize_team_name(name):
@@ -180,6 +461,7 @@ def build_game_df(core_game_stats, master_list, category):
             row = {'Player': p, 'Rec': stats['Rec'], 'Yds': stats['Rec Yds'], 'TD': stats['Rec TD']}
         data.append(row)
     return pd.DataFrame(data)
+
 
 # --- CORE PROCESSING FUNCTION (Updated to take template_data) ---
 def process_team(core_team_name, team_stats, game_stats, parsed_games, template_data, keep_vba, progress_bar, progress_index, total_teams):
@@ -312,7 +594,13 @@ def process_team(core_team_name, team_stats, game_stats, parsed_games, template_
         # Write to Excel
         ws[f"AB{i}"] = opponent_full
 
-        
+    # After loading workbook
+    if "Data Output" in wb.sheetnames and core_team_name in TEAM_COLORS:
+        ws_colors = wb["Data Output"]
+        primary_hex, secondary_hex = TEAM_COLORS[core_team_name]
+        apply_team_colors(ws_colors, primary_hex, secondary_hex)  # your existing color bands
+        apply_team_header_colors(ws_colors, core_team_name)       # NEW header color fills
+
     # --- Step 9: Save and Return file data ---
     output = io.BytesIO()
     wb.save(output)
@@ -434,6 +722,8 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
             for team in root.findall('.//team'):
                 team_name = normalize_team_name(team.attrib.get('name', ''))
                 team_names_set.add(team_name)
+                #st.subheader("🏈 Teams Detected in XML Files")
+                #st.write(sorted(team_names_set))
                 players_dict = {}
 
                 for player in team.findall('./player'):
@@ -531,20 +821,20 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
         )
 
         # --- Dropbox Upload ---
-        import dropbox
+        #import dropbox
 
-        dbx = dropbox.Dropbox(DROPBOX_ACCESS_TOKEN)
+        #dbx = dropbox.Dropbox(DROPBOX_ACCESS_TOKEN)
 
-        dropbox_folder = "/FootballReports"  # Folder path in Dropbox
-        file_path = f"{dropbox_folder}/All_Team_Sheets.zip"
+        #dropbox_folder = "/FootballReports"  # Folder path in Dropbox
+        #file_path = f"{dropbox_folder}/All_Team_Sheets.zip"
 
-        with st.spinner("Uploading ZIP to Dropbox..."):
-            try:
-                zip_buffer.seek(0)  # Reset pointer to start
-                dbx.files_upload(zip_buffer.read(), file_path, mode=dropbox.files.WriteMode.overwrite)
-                st.success(f"✅ All reports uploaded to Dropbox at {file_path}!")
-            except Exception as e:
-                st.error(f"Failed to upload ZIP to Dropbox: {e}")
+        #with st.spinner("Uploading ZIP to Dropbox..."):
+            #try:
+                #zip_buffer.seek(0)  # Reset pointer to start
+                #dbx.files_upload(zip_buffer.read(), file_path, mode=dropbox.files.WriteMode.overwrite)
+                #st.success(f"✅ All reports uploaded to Dropbox at {file_path}!")
+            #except Exception as e:
+                #st.error(f"Failed to upload ZIP to Dropbox: {e}")
 
     else:
         st.error("No reports were successfully processed. Check the warnings above for potential errors (e.g., missing 'BOX SCORES' sheet).")
