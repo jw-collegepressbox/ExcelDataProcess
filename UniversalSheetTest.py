@@ -19,7 +19,7 @@ st.title("🏈 Football XML Stats Parser")
 st.markdown("Enter your Dropbox ZIP URL, upload the Excel template, and generate reports for all teams.")
 
 # Load the Dropbox token from secrets_folder/secrets.toml
-secrets = toml.load("/Users/jasonwang/Desktop/CollegePressbox/secrets_folder/secrets.toml")
+secrets = secrets = toml.load("secrets_folder/secrets.toml")
 DROPBOX_ACCESS_TOKEN = secrets["DROPBOX_ACCESS_TOKEN"]
 
 # --- TEAM MAPPING (Canonical Names for Schedule/Selection) ---
