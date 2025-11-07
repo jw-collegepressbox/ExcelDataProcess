@@ -4,31 +4,6 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from openpyxl.styles import PatternFill
 from openpyxl.styles import Font
-
-# --- Team-specific header font colors (A4 = A29) ---
-TEAM_HEADER_COLORS = {
-    "Florida State": {"A4": "540115", "A14": "CBB67C"},
-    "Army West Point": {"A4": "2E2C28", "A14": "D5BA70"},
-    "Miami (FL)": {"A4": "005030", "A14": "F47321"},
-    "Georgia State": {"A4": "0039A6", "A14": "A2AAAD"},
-    # add more teams...
-}
-
-def apply_team_header_font_colors(ws, core_team_name):
-    """Apply team-specific *font* colors to merged header cells (A4=A29)."""
-    if core_team_name not in TEAM_HEADER_COLORS:
-        return  # skip if not found
-
-    colors = TEAM_HEADER_COLORS[core_team_name]
-
-    def set_font_color(cell_addr, hex_color):
-        ws[cell_addr].font = Font(color=f"FF{hex_color}")
-
-    # Apply font colors (A4 = A29)
-    set_font_color("A4", colors["A4"])
-    set_font_color("A29", colors["A4"])
-    set_font_color("A14", colors["A14"])
-
 import re
 from openpyxl import load_workbook
 import io
