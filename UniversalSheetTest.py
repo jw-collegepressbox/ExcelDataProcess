@@ -349,27 +349,25 @@ def apply_team_header_colors(ws, core_team_name):
     set_font_color("A14", colors["A14"])
 
 
-# --- HELPER FUNCTIONS (Adjusted to take template_data instead of template_file) ---
+# --- HELPER FUNCTIONS ---
 
 def normalize_team_name(name):
     """
     Normalizes team names from XML, aggressively handling inconsistent spacing and aliases.
-    The fix is here: re.sub(r'\s+', ' ', name).strip()
     """
     if not name:
         return ""
         
-    # 1. AGGRESSIVE WHITESPACE CLEANUP: Replace all sequences of whitespace 
-    # (spaces, tabs, non-breaking spaces like the one in your file) with a single space, then strip.
+    # 1. AGGRESSIVE WHITESPACE CLEANUP
     name_cleaned = re.sub(r'\s+', ' ', name).strip()
     
-    # 2. Apply existing cleanup rules on the now clean name
+    # 2. Apply existing cleanup rules
     name_cleaned = name_cleaned.replace('.', '')
     name_cleaned = re.sub(r'^#\d+\s+', '', name_cleaned)
     name_cleaned = re.sub(r'\bSt\b', 'State', name_cleaned)
     name_cleaned = name_cleaned.strip()
     
-    # 3. CRITICAL FIX: Alias Check using the cleaned, lowercase name
+    # 3. Alias Check
     name_lower = name_cleaned.lower()
     
     if name_lower in XML_NAME_ALIASES:
@@ -378,9 +376,97 @@ def normalize_team_name(name):
     # 4. Default Return
     return name_cleaned
 
+def normalize_schedule_team_name(name):
+    """
+    Extra normalization for team names in the schedule file to match our canonical names.
+    """
+    if not name or pd.isna(name):
+        return ""
+    
+    name = str(name).strip()
+    
+    # Common schedule variations to canonical names
+    schedule_aliases = {
+        "army": "Army West Point",
+        "middle tennessee": "Middle Tenn",
+        "mt": "Middle Tenn",
+        "mtsu": "Middle Tenn",
+        "central florida": "UCF",
+        "connecticut": "UConn",
+        "louisiana monroe": "ULM",
+        "ul monroe": "ULM",
+        "miami (florida)": "Miami (FL)",
+        "miami fl": "Miami (FL)",
+        "miami-fl": "Miami (FL)",
+        "miami (ohio)": "Miami (OH)",
+        "miami oh": "Miami (OH)",
+        "miami-oh": "Miami (OH)",
+    }
+    
+    name_lower = name.lower()
+    
+    # Check schedule-specific aliases first
+    if name_lower in schedule_aliases:
+        return schedule_aliases[name_lower]
+    
+    # Then use the regular normalize function
+    return normalize_team_name(name)
+
+def load_master_schedule(schedule_file):
+    """
+    Load the master schedule Excel file and return a dictionary mapping team names to their games.
+    Returns: dict where key = team_name, value = list of (date, opponent, is_home) tuples
+    """
+    try:
+        df = pd.read_excel(schedule_file, engine='openpyxl')
+        
+        # Verify required columns exist
+        if 'Date' not in df.columns or 'Visitor' not in df.columns or 'Home' not in df.columns:
+            st.error("Master schedule must have columns: 'Date' (column B), 'Visitor' (column D), and 'Home' (column F)")
+            return None
+        
+        # Build schedule dictionary
+        team_schedules = defaultdict(list)
+        
+        for _, row in df.iterrows():
+            date_val = row['Date']
+            visitor = normalize_schedule_team_name(row['Visitor'])
+            home = normalize_schedule_team_name(row['Home'])
+            
+            # Skip if either team name is empty
+            if not visitor or not home:
+                continue
+            
+            # Parse date
+            if pd.isna(date_val):
+                continue
+            
+            if isinstance(date_val, str):
+                game_date = pd.to_datetime(date_val, errors='coerce')
+            else:
+                game_date = pd.to_datetime(date_val)
+            
+            if pd.isna(game_date):
+                continue
+            
+            # Add game to visitor's schedule (away game)
+            team_schedules[visitor].append((game_date, home, False))
+            
+            # Add game to home team's schedule (home game)
+            team_schedules[home].append((game_date, visitor, True))
+        
+        # Sort each team's schedule by date
+        for team in team_schedules:
+            team_schedules[team].sort(key=lambda x: x[0])
+        
+        return dict(team_schedules)
+        
+    except Exception as e:
+        st.error(f"Error loading master schedule: {e}")
+        return None
+
 def build_cumulative_df(core_stats, master_order, category):
     data = []
-    # Simplified keys for cleaner code, matching the required output columns
     stat_keys = {
         'rush': ['Rush Att','Rush Yds','Rush TD'],
         'pass': ['Pass Comp','Pass Att','Pass Yds','Pass TD','Pass INT'],
@@ -388,7 +474,6 @@ def build_cumulative_df(core_stats, master_order, category):
     }
     
     for p in master_order[category]:
-        # Default stats for players not found in core_stats (shouldn't happen, but safe)
         s = core_stats.get(p, {k: 0 for k in stat_keys['rush'] + stat_keys['pass'] + stat_keys['recv']})
 
         if category == 'rush':
@@ -408,11 +493,10 @@ def fill_excel_df(ws, df, start_row, columns):
 
 def set_cell_value_safe(ws, row, col_letter, value):
     cell_coord = f"{col_letter}{row}"
-    # Check if the cell is part of a merged area but is not the top-left cell
     for merged in ws.merged_cells.ranges:
         if cell_coord in merged:
             if cell_coord != merged.start_cell.coordinate:
-                return # Skip writing to merged cells that aren't the primary cell
+                return
     ws[cell_coord].value = value
 
 def build_game_df(core_game_stats, master_list, category):
@@ -424,7 +508,6 @@ def build_game_df(core_game_stats, master_list, category):
     }
 
     for p in master_list:
-        # Get stats for the current player in the current game
         stats = core_game_stats.get(p, {k: 0 for k in stat_keys['rush'] + stat_keys['pass'] + stat_keys['recv']})
         
         if category == 'rush':
@@ -438,8 +521,8 @@ def build_game_df(core_game_stats, master_list, category):
     return pd.DataFrame(data)
 
 
-# --- CORE PROCESSING FUNCTION (Updated to take template_data) ---
-def process_team(core_team_name, team_stats, game_stats, parsed_games, template_data, keep_vba, progress_bar, progress_index, total_teams):
+# --- CORE PROCESSING FUNCTION ---
+def process_team(core_team_name, team_stats, game_stats, parsed_games, template_data, keep_vba, master_schedule, progress_bar, progress_index, total_teams):
     
     # Update progress bar
     progress_percent = (progress_index / total_teams)
@@ -447,39 +530,33 @@ def process_team(core_team_name, team_stats, game_stats, parsed_games, template_
     
     core_stats = team_stats[core_team_name]
 
-    # --- Step 3b: Get schedule games ---
-    schedule_games = []
+    # --- Get schedule from master schedule file ---
+    if core_team_name not in master_schedule:
+        st.warning(f"Team {core_team_name} not found in master schedule. Skipping.")
+        return None
     
-    def get_full_name_from_file_segment(segment):
-        if segment in TEAM_NAME_MAP:
-            return TEAM_NAME_MAP[segment]
-        return segment.title().replace("St", "State") 
-
-    for game_date, team1, team2, file_stream, file_name in parsed_games:
-        full_name1 = get_full_name_from_file_segment(team1)
-        full_name2 = get_full_name_from_file_segment(team2)
-        
-        if full_name1 == core_team_name:
-            is_home = False
-            opponent_file_segment = team2 
-        elif full_name2 == core_team_name:
-            is_home = True
-            opponent_file_segment = team1
-        else:
-            continue
-            
-        game_name = file_name.replace(".xml", "")
-
-        schedule_games.append((game_date, game_name, opponent_file_segment, is_home))
-
+    schedule_games = master_schedule[core_team_name]
+    
     if not schedule_games:
-        return None 
+        return None
 
-    # --- Step 4: Build master order (Logic remains the same) ---
+    # --- Build master order ---
     master_order = {'rush': [], 'pass': [], 'recv': []}
 
-    for game_idx, (game_date, game_name, opponent, is_home) in enumerate(schedule_games, start=1):
-        core_game_stats = game_stats[game_name][core_team_name] 
+    for game_idx, (game_date, opponent, is_home) in enumerate(schedule_games, start=1):
+        # Find matching game in game_stats
+        game_found = False
+        for game_name in game_stats:
+            if core_team_name in game_stats[game_name]:
+                # Check if opponent is in this game
+                teams_in_game = list(game_stats[game_name].keys())
+                if opponent in teams_in_game or any(normalize_team_name(t) == opponent for t in teams_in_game):
+                    core_game_stats = game_stats[game_name][core_team_name]
+                    game_found = True
+                    break
+        
+        if not game_found:
+            continue
 
         rush_players = [p for p, s in core_game_stats.items() if s['Rush Att'] > 0 or s['Rush Yds'] != 0 or s['Rush TD'] != 0]
         pass_players = [p for p, s in core_game_stats.items() if (s['Pass Att'] > 0 or s['Pass Yds'] != 0 or s['Pass TD'] != 0 or s['Pass Comp'] > 0 or s['Pass INT'] > 0 or s['Sacks'] > 0)]
@@ -495,19 +572,18 @@ def process_team(core_team_name, team_stats, game_stats, parsed_games, template_
                 if p not in master_order[category]:
                     master_order[category].append(p)
 
-    # --- Step 5: Build cumulative DataFrames (Logic remains the same) ---
+    # --- Build cumulative DataFrames ---
     rush_df = build_cumulative_df(core_stats, master_order, 'rush')
     pass_df = build_cumulative_df(core_stats, master_order, 'pass')
     recv_df = build_cumulative_df(core_stats, master_order, 'recv')
     
-    # --- Step 6: Load Excel template from in-memory data and Fill cumulative stats ---
-    
-    # CRITICAL FIX: Load from in-memory template_data buffer, not the original st.file_uploader object
+    # --- Load Excel template ---
     template_buffer = io.BytesIO(template_data) 
     
     try:
         wb = load_workbook(template_buffer, keep_vba=keep_vba)
-        ws = wb["BOX SCORES"] 
+        ws = wb["BOX SCORES"]
+        ws_sorting = wb["Sorting Sheet"] if "Sorting Sheet" in wb.sheetnames else None
     except KeyError:
         st.error(f"Failed to find the worksheet named 'BOX SCORES' in the template for {core_team_name}. Skipping.")
         return None
@@ -520,9 +596,20 @@ def process_team(core_team_name, team_stats, game_stats, parsed_games, template_
     fill_excel_df(ws, pass_df, 3, {'G':'Player','H':'Comp','I':'Att','K':'Yds','M':'TD','O':'INT'})
     fill_excel_df(ws, recv_df, 3, {'R':'Player','S':'Rec','T':'Yds','V':'TD'})
 
-    # --- Step 7: Fill game stats ---
-    for game_idx, (game_date, game_name, opponent, is_home) in enumerate(schedule_games, start=1):
-        core_game_stats = game_stats[game_name][core_team_name]
+    # --- Fill game stats ---
+    for game_idx, (game_date, opponent, is_home) in enumerate(schedule_games, start=1):
+        # Find matching game in game_stats
+        game_found = False
+        for game_name in game_stats:
+            if core_team_name in game_stats[game_name]:
+                teams_in_game = list(game_stats[game_name].keys())
+                if opponent in teams_in_game or any(normalize_team_name(t) == opponent for t in teams_in_game):
+                    core_game_stats = game_stats[game_name][core_team_name]
+                    game_found = True
+                    break
+        
+        if not game_found:
+            continue
         
         # Build game DFs using the master order
         rush_df_game = build_game_df(core_game_stats, master_order['rush'], 'rush')
@@ -535,7 +622,7 @@ def process_team(core_team_name, team_stats, game_stats, parsed_games, template_
         fill_excel_df(ws, pass_df_game, base_row, {'H': 'Comp', 'I': 'Att', 'K': 'Yds', 'M': 'TD', 'O': 'INT'})
         fill_excel_df(ws, recv_df_game, base_row, {'S': 'Rec', 'T': 'Yds', 'V': 'TD'})
 
-        # Fill player names (only once per game block)
+        # Fill player names
         for i, p_name in enumerate(master_order['rush']):
              set_cell_value_safe(ws, base_row + i, 'B', p_name)
         
@@ -545,51 +632,62 @@ def process_team(core_team_name, team_stats, game_stats, parsed_games, template_
         for i, p_name in enumerate(master_order['recv']):
             set_cell_value_safe(ws, base_row + i, 'R', p_name)
 
-
-    # --- Step 8: Fill Schedule Columns (Z, AA, AB) ---
-    # --- Step 8: Fill Schedule Columns (Z, AA, AB) ---
-    for i, (game_date, game_name, opponent, is_home) in enumerate(schedule_games[:17], start=2):
-        ws[f"Z{i}"] = game_date.strftime("%m/%d")
-
+    # --- Fill Schedule Columns (Z, AA, AB) in BOX SCORES ---
+    for i, (game_date, opponent, is_home) in enumerate(schedule_games[:17], start=2):
+        # Format date as M/D
+        ws[f"Z{i}"] = game_date.strftime("%-m/%-d") if game_date.strftime("%m")[0] != "0" else game_date.strftime("%m/%d").lstrip("0").replace("/0", "/")
+        
+        # Determine if playoff game
         is_playoff = (i - 1) > 12
+        
+        # Fill AA column (at/home indicator)
         if is_playoff and not is_home:
             ws[f"AA{i}"] = "†"
         elif not is_home:
             ws[f"AA{i}"] = "at"
         else:
             ws[f"AA{i}"] = ""
+        
+        # Fill AB column (opponent name)
+        ws[f"AB{i}"] = opponent
 
-        # ✅ SAFER TEAM NAME FIX
-        opponent_cleaned = normalize_team_name(opponent)
-        opponent_key = opponent.lower().replace(" ", "")
+    # --- Fill Schedule Columns in Sorting Sheet (if exists) ---
+    if ws_sorting:
+        for i, (game_date, opponent, is_home) in enumerate(schedule_games[:17], start=2):
+            ws_sorting[f"Z{i}"] = game_date.strftime("%-m/%-d") if game_date.strftime("%m")[0] != "0" else game_date.strftime("%m/%d").lstrip("0").replace("/0", "/")
+            
+            is_playoff = (i - 1) > 12
+            
+            if is_playoff and not is_home:
+                ws_sorting[f"AA{i}"] = "†"
+            elif not is_home:
+                ws_sorting[f"AA{i}"] = "at"
+            else:
+                ws_sorting[f"AA{i}"] = ""
+            
+            ws_sorting[f"AB{i}"] = opponent
 
-        # Try to map abbreviation to full name
-        opponent_full = TEAM_NAME_MAP.get(opponent_key, opponent.title())
-
-        # Write to Excel
-        ws[f"AB{i}"] = opponent_full
-
-    # After loading workbook
+    # Apply team colors
     if "Data Output" in wb.sheetnames and core_team_name in TEAM_COLORS:
         ws_colors = wb["Data Output"]
         primary_hex, secondary_hex = TEAM_COLORS[core_team_name]
-        apply_team_colors(ws_colors, primary_hex, secondary_hex)  # your existing color bands
-        apply_team_header_colors(ws_colors, core_team_name)       # NEW header color fills
+        apply_team_colors(ws_colors, primary_hex, secondary_hex)
+        apply_team_header_colors(ws_colors, core_team_name)
 
-    # --- Step 9: Save and Return file data ---
+    # --- Save and Return file data ---
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
     
     special_cases = {
-    "Army West Point": "Army_Ind",
-    "Miami (FL)": "Miami_Fl_Ind",
-    "Miami (OH)": "Miami_Ohio_Ind",
-    "Georgia State": "Georgia_State_Ind",
-    "Jacksonville State": "JacksonvilleSt_Ind",
-    "Louisiana Tech": "La_Tech_Ind",
-    "Missouri State": "MissouriSt_Ind",
-    "Sam Houston": "SamHoustonSt_Ind"
+        "Army West Point": "Army_Ind",
+        "Miami (FL)": "Miami_Fl_Ind",
+        "Miami (OH)": "Miami_Ohio_Ind",
+        "Georgia State": "Georgia_State_Ind",
+        "Jacksonville State": "JacksonvilleSt_Ind",
+        "Louisiana Tech": "La_Tech_Ind",
+        "Missouri State": "MissouriSt_Ind",
+        "Sam Houston": "SamHoustonSt_Ind"
     }
 
     if core_team_name in special_cases:
@@ -602,8 +700,8 @@ def process_team(core_team_name, team_stats, game_stats, parsed_games, template_
 
     file_name += ".xlsm" if keep_vba else ".xlsx"
 
-    return output, file_name 
-# END of process_team function
+    return output, file_name
+
 
 # ----------------------------------------------------------------------
 # --- MAIN APPLICATION LOGIC ---
@@ -614,15 +712,23 @@ dropbox_zip_url = st.text_input(
     "" 
 )
 
-template_file = st.file_uploader("Upload your Excel template (.xlsx or .xlsm) **AFTER** entering the URL.", type=["xlsx", "xlsm"])
+template_file = st.file_uploader("Upload your Excel template (.xlsx or .xlsm)", type=["xlsx", "xlsm"])
 
-# Only start the process if the button is clicked, the URL is provided, AND the template is uploaded
-if st.button("Generate Reports") and dropbox_zip_url and template_file:
+schedule_file = st.file_uploader("Upload the Master Schedule Excel file", type=["xlsx", "xlsm"])
+
+# Only start the process if the button is clicked and all files are provided
+if st.button("Generate Reports") and dropbox_zip_url and template_file and schedule_file:
     
-    # ------------------ FILE DOWNLOAD & INITIAL XML PARSING ------------------
+    # --- Load Master Schedule First ---
+    with st.spinner("Loading master schedule..."):
+        master_schedule = load_master_schedule(schedule_file)
+        if not master_schedule:
+            st.error("Failed to load master schedule. Please check the file format.")
+            st.stop()
+        st.success(f"✅ Master schedule loaded for {len(master_schedule)} teams")
     
+    # --- Download and Extract XML Files ---
     try:
-        # Download the ZIP file content
         with st.spinner(f"Downloading files from {dropbox_zip_url}..."):
             response = requests.get(dropbox_zip_url, stream=True, timeout=60)
             response.raise_for_status() 
@@ -647,7 +753,7 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
         st.error(f"An unexpected error occurred during file extraction: {e}")
         st.stop()
 
-
+    # --- Parse XML Filenames ---
     parsed_games = []
     
     for file_name_with_path, file_stream in all_xml_data.items():
@@ -669,7 +775,7 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
         
     parsed_games.sort(key=lambda x: x[0]) 
 
-    # XML Parsing Structures
+    # --- Parse XML Data ---
     team_stats = defaultdict(lambda: defaultdict(lambda: {
         'Rush Att': 0, 'Rush Yds': 0, 'Rush TD': 0, 'Rec': 0, 'Rec Yds': 0, 'Rec TD': 0,
         'Pass Comp': 0, 'Pass Att': 0, 'Pass Yds': 0, 'Pass TD': 0, 'Pass INT': 0, 'Sacks': 0
@@ -677,13 +783,10 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
     team_names_set = set()
     game_stats = {}
 
-
-    # XML PARSING LOOP
     with st.spinner("Parsing XML data and aggregating stats..."):
         for game_date, team1, team2, file_stream, file_name in parsed_games: 
             file_stream.seek(0)
             
-            # Using try/except block here is safer for potentially malformed XML files
             try:
                 tree = ET.parse(file_stream) 
                 root = tree.getroot()
@@ -697,8 +800,6 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
             for team in root.findall('.//team'):
                 team_name = normalize_team_name(team.attrib.get('name', ''))
                 team_names_set.add(team_name)
-                #st.subheader("🏈 Teams Detected in XML Files")
-                #st.write(sorted(team_names_set))
                 players_dict = {}
 
                 for player in team.findall('./player'):
@@ -710,7 +811,7 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
                         last, first = name.split(',', 1)
                         name = f"{first.strip()} {last.strip()}"
 
-                    stats = {k: 0 for k in team_stats[team_name][name].keys()} # Initialize all stats to 0
+                    stats = {k: 0 for k in team_stats[team_name][name].keys()}
 
                     if (r := player.find('rush')) is not None:
                         stats['Rush Att'] = int(r.attrib.get('att', 0))
@@ -738,11 +839,7 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
 
                 game_stats[game_name][team_name] = players_dict
 
-    # ----------------------------------------------------------------------
-    # --- TEMPLATE PROCESSING SETUP (The fix for the freeze!) ---
-    # ----------------------------------------------------------------------
-    
-    # 1. Filter teams to only those in the TEAM_NAME_MAP
+    # --- Process Teams ---
     valid_teams = sorted([team for team in team_names_set if team in TEAM_NAME_MAP.values()])
     total_teams = len(valid_teams)
 
@@ -750,9 +847,7 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
         st.error("No teams found in the XML files that match the accepted team list for report generation.")
         st.stop()
         
-    # 2. Load template data ONCE into a byte buffer
     keep_vba = template_file.name.endswith(".xlsm")
-    # Read the full content into memory. This is the key to efficiency.
     template_data = template_file.getvalue() 
     
     st.header(f"📊 Starting Automated Report Generation for {total_teams} Teams...")
@@ -760,21 +855,17 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
 
     results = []
     
-    # 3. Loop through every valid team and generate a report
     for idx, team in enumerate(valid_teams):
-        # The process_team function now receives the raw template_data bytes.
-        result = process_team(team, team_stats, game_stats, parsed_games, template_data, keep_vba, progress_bar, idx + 1, total_teams)
+        result = process_team(team, team_stats, game_stats, parsed_games, template_data, keep_vba, master_schedule, progress_bar, idx + 1, total_teams)
         
         if result:
             results.append(result)
         else:
             st.warning(f"Could not generate report for {team}.")
 
-    # Set progress to 100% when finished
     progress_bar.progress(1.0, text="✅ All reports generated!")
     
-    # 4. ZIP ARCHIVE CREATION 
-    # ------------------ ZIP ARCHIVE CREATION ------------------
+    # --- Create ZIP ---
     st.header("📦 Packaging All Sheets into One File")
 
     if results:
@@ -787,7 +878,6 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
         
         zip_buffer.seek(0)
 
-        # --- Local Download ---
         st.download_button(
             label = "📥 Download All Reports as ZIP",
             data = zip_buffer,
@@ -795,21 +885,5 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file:
             mime = "application/zip"
         )
 
-        # --- Dropbox Upload ---
-        #import dropbox
-
-        #dbx = dropbox.Dropbox(DROPBOX_ACCESS_TOKEN)
-
-        #dropbox_folder = "/FootballReports"  # Folder path in Dropbox
-        #file_path = f"{dropbox_folder}/All_Team_Sheets.zip"
-
-        #with st.spinner("Uploading ZIP to Dropbox..."):
-            #try:
-                #zip_buffer.seek(0)  # Reset pointer to start
-                #dbx.files_upload(zip_buffer.read(), file_path, mode=dropbox.files.WriteMode.overwrite)
-                #st.success(f"✅ All reports uploaded to Dropbox at {file_path}!")
-            #except Exception as e:
-                #st.error(f"Failed to upload ZIP to Dropbox: {e}")
-
     else:
-        st.error("No reports were successfully processed. Check the warnings above for potential errors (e.g., missing 'BOX SCORES' sheet).")
+        st.error("No reports were successfully processed. Check the warnings above for potential errors.")
