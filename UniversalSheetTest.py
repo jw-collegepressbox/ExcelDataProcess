@@ -10,17 +10,17 @@ import io
 import zipfile
 import requests
 import toml
-import time # Added for demonstration
-import streamlit as st
-
+import time
+import dropbox
+from dropbox.files import WriteMode
 
 st.set_page_config(layout="wide")
 st.title("🏈 Football XML Stats Parser")
-st.markdown("Enter your Dropbox ZIP URL, upload the Excel template, and generate reports for all teams.")
+st.markdown("Enter your Dropbox ZIP URL, upload the Excel template and master schedule, then generate reports for all teams.")
 
 # Load the Dropbox token from secrets_folder/secrets.toml
-secrets = secrets = toml.load("secrets_folder/secrets.toml")
-DROPBOX_ACCESS_TOKEN = secrets["DROPBOX_ACCESS_TOKEN"]
+secrets = toml.load("/Users/jasonwang/Desktop/CollegePressbox/secrets_folder/secrets.toml")
+#DROPBOX_ACCESS_TOKEN = secrets["DROPBOX_ACCESS_TOKEN"]
 
 # --- TEAM MAPPING (Canonical Names for Schedule/Selection) ---
 TEAM_NAME_MAP = {
@@ -314,6 +314,29 @@ TEAM_HEADER_COLORS = {
     "Wyoming": {"A4": "FFFFFF","A14": "FFFFFF"},
 }
 
+# NEW: Function to get access token using refresh token
+def get_dropbox_client():
+    """
+    Creates a Dropbox client using refresh token for long-term authentication.
+    This way you don't need to regenerate access tokens.
+    """
+    try:
+        # Check if using refresh token (recommended)
+        if "DROPBOX_REFRESH_TOKEN" in secrets:
+            return dropbox.Dropbox(
+                app_key=secrets["DROPBOX_APP_KEY"],
+                app_secret=secrets["DROPBOX_APP_SECRET"],
+                oauth2_refresh_token=secrets["DROPBOX_REFRESH_TOKEN"]
+            )
+        # Fallback to old method with access token
+        elif "DROPBOX_ACCESS_TOKEN" in secrets:
+            return dropbox.Dropbox(secrets["DROPBOX_ACCESS_TOKEN"])
+        else:
+            st.error("No Dropbox credentials found in secrets.toml")
+            return None
+    except Exception as e:
+        st.error(f"Error creating Dropbox client: {e}")
+        return None
 
 def apply_team_colors(ws, primary_hex, secondary_hex):
     """Apply primary and secondary colors to fixed ranges in Data Output sheet."""
@@ -884,6 +907,23 @@ if st.button("Generate Reports") and dropbox_zip_url and template_file and sched
             file_name = "All_Team_Sheets.zip",
             mime = "application/zip"
         )
+
+        # --- Dropbox Upload ---
+
+        dbx = get_dropbox_client()
+        if not dbx:
+            st.error("Failed to create Dropbox client")
+        else:
+            dropbox_folder = "/FootballReports"
+            file_path = f"{dropbox_folder}/All_Team_Sheets.zip"
+
+            with st.spinner("Uploading ZIP to Dropbox..."):
+                try:
+                    zip_buffer.seek(0)
+                    dbx.files_upload(zip_buffer.read(), file_path, mode=dropbox.files.WriteMode.overwrite)
+                    st.success(f"✅ All reports uploaded to Dropbox at {file_path}!")
+                except Exception as e:
+                    st.error(f"Failed to upload ZIP to Dropbox: {e}")
 
     else:
         st.error("No reports were successfully processed. Check the warnings above for potential errors.")
